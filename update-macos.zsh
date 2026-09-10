@@ -5,7 +5,7 @@
 # Standalone: run it on its own, independently from the rest of the setup process.
 #
 # Usage:
-#   ./update-macos.zsh                    # update macOS in place + bump major version if behind
+#   ./update-macos.zsh                      # update macOS in place + bump major version if behind
 #   SKIP_FULL_UPGRADE=1 ./update-macos.zsh  # apply in-place updates only, leave current major version
 #
 # Design notes:
