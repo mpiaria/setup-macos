@@ -12,10 +12,8 @@
 #       curl -fsSL https://mise.run/zsh | sh
 #     It installs the binary to ~/.local/bin/mise and adds the zsh
 #     activation line to ~/.zshrc (idempotent — it greps for its own
-#     '# added by https://mise.run/zsh' marker). Shell activation itself
-#     is left to whatever already provides it (e.g. the oh-my-zsh mise
-#     plugin); the line the installer appends is harmless and not
-#     managed by this script.
+#     '# added by https://mise.run/zsh' marker), so mise works in every
+#     new shell.
 #   * Enables automatic updates globally:
 #       mise settings auto_update=true
 #     (safe to re-run; just re-asserts the setting)
