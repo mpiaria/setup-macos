@@ -1,12 +1,12 @@
 #!/usr/bin/env zsh
 #
-# install-xcode-command-line-tools.zsh — install the Xcode Command Line Tools.
+# install-command-line-tools.zsh — install the Xcode Command Line Tools.
 #
 # Standalone: run it on its own, independently from the rest of the setup process.
 #
 # Usage:
-#   ./install-xcode-command-line-tools.zsh      # install (no-op if already installed)
-#   FORCE_CLT=1 ./install-xcode-command-line-tools.zsh   # reinstall even if present
+#   ./install-command-line-tools.zsh      # install (no-op if already installed)
+#   FORCE_CLT=1 ./install-command-line-tools.zsh   # reinstall even if present
 #
 # How it works:
 #   * Detection: CLT count as installed when xcode-select -p resolves to
