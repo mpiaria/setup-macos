@@ -25,3 +25,7 @@ say()  { printf '\n\033[1;34m== %s ==\033[0m\n' "$*"; }
 ok()   { printf '   \033[1;32m%s\033[0m\n' "$*"; }
 info() { printf '   %s\n' "$*"; }
 warn() { printf '   \033[1;33m%s\033[0m\n' "$*"; }
+# Hard failure: red text on stderr. It does NOT exit by itself — callers
+# follow it with `return 1`, which 'set -euo pipefail' turns into an abort
+# of the whole script.
+error() { printf '   \033[1;31mERROR: %s\033[0m\n' "$*" >&2; }

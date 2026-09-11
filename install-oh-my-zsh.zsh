@@ -18,11 +18,19 @@
 #         renames it to ~/.zshrc.pre-oh-my-zsh and writes its default
 #         template — that is standard Oh My Zsh behavior, not something
 #         this script adds.
-#   2. Clones the powerlevel10k theme if not already there, exactly per
+#   2. Installs the MesloLGS NF fonts powerlevel10k needs (all four
+#      styles), which the p10k docs list as a requirement:
+#        brew install --cask font-meslo-for-powerlevel10k
+#      Homebrew's cask ships exactly the files from the p10k "Meslo Nerd
+#      Font patched for powerlevel10k" section:
+#        MesloLGS NF Regular.ttf / Bold.ttf / Italic.ttf / Bold Italic.ttf
+#      Installed into ~/Library/Fonts. This is a HARD dependency: if
+#      Homebrew is missing or the install fails, the script fails.
+#   3. Clones the powerlevel10k theme if not already there, exactly per
 #      the official instructions:
 #         git clone --depth=1 https://github.com/romkatv/powerlevel10k.git \
 #           "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
-#   3. Finds the ZSH_THEME line in ~/.zshrc and sets its value to
+#   4. Finds the ZSH_THEME line in ~/.zshrc and sets its value to
 #      "powerlevel10k/powerlevel10k" (appends the line if none exists).
 #
 # Design notes:
@@ -30,6 +38,8 @@
 #   * Idempotent: safe to re-run; each step no-ops if already done and a
 #     re-run never rewrites ~/.zshrc unless the ZSH_THEME value differs.
 #   * git is required (from the Command Line Tools); no sudo.
+#   * Homebrew is REQUIRED: the script fails without it after the fonts
+#     step (unless all four fonts are already installed).
 #   * After installation, open a NEW terminal (or 'source ~/.zshrc').
 #     p10k will run its configuration prompt on first load — or add
 #     POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true to skip it.
@@ -43,6 +53,14 @@ OMZ_INSTALL_URL="https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/
 P10K_REPO="https://github.com/romkatv/powerlevel10k.git"
 ZSHRC="${HOME}/.zshrc"
 P10K_THEME='powerlevel10k/powerlevel10k'
+MESLO_FONTS_CASK="font-meslo-for-powerlevel10k"
+MESLO_FONTS_DIR="${HOME}/Library/Fonts"
+MESLO_FONTS=(
+    "MesloLGS NF Regular.ttf"
+    "MesloLGS NF Bold.ttf"
+    "MesloLGS NF Italic.ttf"
+    "MesloLGS NF Bold Italic.ttf"
+)
 
 
 # =========================================================================
@@ -71,7 +89,44 @@ install_oh_my_zsh() {
 }
 
 # =========================================================================
-# Step 2 — powerlevel10k theme
+# Step 2 — MesloLGS NF fonts (powerlevel10k requirement)
+# =========================================================================
+# True only if ALL four font files are present in ~/Library/Fonts.
+# Checking the files (not 'brew list --cask') means this also succeeds on
+# machines where the fonts were installed without Homebrew.
+fonts_installed() {
+    local f
+    for f in "${MESLO_FONTS[@]}"; do
+        [ -f "${MESLO_FONTS_DIR}/${f}" ] || return 1
+    done
+    return 0
+}
+
+install_fonts() {
+    say "Install the MesloLGS NF fonts (powerlevel10k requirement)"
+    if fonts_installed; then
+        ok "All four MesloLGS NF fonts already present in ${MESLO_FONTS_DIR}."
+        return 0
+    fi
+    # HARD dependency: no brew, or a failed cask install, aborts the script.
+    if ! command -v brew >/dev/null 2>&1; then
+        error "Homebrew is required to install the fonts, but brew was not found. Install it first (./install-homebrew.zsh) and re-run this script."
+        return 1
+    fi
+    info "Installing cask '$MESLO_FONTS_CASK' (installs all four styles)..."
+    if ! brew install --cask "$MESLO_FONTS_CASK"; then
+        error "brew install --cask $MESLO_FONTS_CASK failed — see the error above and re-run this script."
+        return 1
+    fi
+    if ! fonts_installed; then
+        error "Cask install succeeded but not all four fonts were found in ${MESLO_FONTS_DIR}."
+        return 1
+    fi
+    ok "MesloLGS NF fonts installed."
+}
+
+# =========================================================================
+# Step 3 — powerlevel10k theme
 # =========================================================================
 p10k_installed() {
     [ -d "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k" ]
@@ -98,7 +153,7 @@ install_powerlevel10k() {
 }
 
 # =========================================================================
-# Step 3 — point ZSH_THEME at powerlevel10k
+# Step 4 — point ZSH_THEME at powerlevel10k
 # =========================================================================
 # True if ~/.zshrc already sets ZSH_THEME to the powerlevel10k value.
 theme_already_set() {
@@ -141,6 +196,7 @@ set_zsh_theme() {
 # =========================================================================
 main() {
     install_oh_my_zsh
+    install_fonts
     install_powerlevel10k
     set_zsh_theme
     say "Oh My Zsh setup complete."
