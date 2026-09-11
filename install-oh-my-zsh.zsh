@@ -33,9 +33,11 @@
 #       * sets the Pro profile's font to MesloLGS NF at 12pt
 #     The font can only be written through Terminal's AppleScript API
 #     (it's a binary blob inside the plist, not a settable string), which
-#     means Terminal.app is momentarily LAUNCHED for reads/writes. It is
-#     quit again when done if the script started it, leaving the machine
-#     as it was found.
+#     means Terminal.app is momentarily launched for reads/writes if it
+#     was closed. The script NEVER quits Terminal: the user runs it from
+#     a terminal, and process detection is unreliable (e.g. 'pgrep -x
+#     Terminal' can miss a running Terminal on recent macOS), so quitting
+#     is not worth the risk of closing a window the user had open.
 #   4. Clones the powerlevel10k theme if not already there, exactly per
 #      the official instructions:
 #         git clone --depth=1 https://github.com/romkatv/powerlevel10k.git \
@@ -145,18 +147,16 @@ install_fonts() {
 # =========================================================================
 # Step 3 — Terminal.app: default profile Pro, Pro profile font MesloLGS NF
 # =========================================================================
-# Launch-state helpers: Terminal.app must be quit again if THIS STEP is
-# what launched it — never an app the user had running.
-_terminal_was_running() {
-    pgrep -x Terminal >/dev/null 2>&1
-}
-_terminal_quit() {
-    osascript -e 'tell application "Terminal" to quit' >/dev/null 2>&1 || true
-}
+# The font can only be written through Terminal's AppleScript API, which
+# LAUNCHES Terminal if it is closed. That is acceptable, but the script
+# NEVER quits Terminal afterwards: the user runs it from a terminal, and
+# launch-state detection is unreliable (e.g. 'pgrep -x Terminal' can miss
+# a running Terminal on recent macOS), so quitting risks closing a window
+# the user had open.
 
 # Face name read back from the API for a MesloLGS NF font, e.g.
 # "MesloLGS-NF-Regular". (Calling this launches Terminal when it is
-# closed — the caller accounts for that.)
+# closed — that is fine; see the note atop this step.)
 _terminal_font_face() {
     osascript -e "tell application \"Terminal\" to get (font of settings set \"${TERMINAL_PROFILE}\") as text" 2>/dev/null || true
 }
@@ -196,24 +196,17 @@ configure_terminal() {
     fi
 
     # --- part 2: the Pro profile's font — AppleScript API only, which
-    # means Terminal launches for reads/writes; quit it afterwards if
-    # this step is what launched it.
-    local was_running=0
-    if _terminal_was_running; then
-        was_running=1
-    fi
-
+    # launches Terminal when it is closed. The script never quits it
+    # afterwards (see the note atop this step).
     local face size
     face="$(_terminal_font_face)"
     if [[ "$face" != *"$TERMINAL_FONT_MARKER"* ]]; then
         info "Setting ${TERMINAL_PROFILE} font to ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt (was: ${face:-none})..."
         if ! _terminal_set_font; then
-            (( was_running )) || _terminal_quit
             error "Terminal refused the font change (is there a ${TERMINAL_PROFILE} profile?)."
             return 1
         fi
         if ! _terminal_set_font_size; then
-            (( was_running )) || _terminal_quit
             error "Terminal refused the font-size change."
             return 1
         fi
@@ -222,7 +215,6 @@ configure_terminal() {
         size="$(_terminal_font_size)"
         if [ "${size:-0}" != "$TERMINAL_FONT_SIZE" ]; then
             if ! _terminal_set_font_size; then
-                (( was_running )) || _terminal_quit
                 error "Terminal refused the font-size change."
                 return 1
             fi
@@ -231,9 +223,6 @@ configure_terminal() {
             ok "${TERMINAL_PROFILE} font is already ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt."
         fi
     fi
-
-    # Leave the machine as found: if this step launched Terminal, close it.
-    (( was_running )) || _terminal_quit
 }
 
 
