@@ -70,8 +70,8 @@ update_macos() {
         info "Installing all pending updates (may take a while)..."
         # --install --all : install all appropriate updates
         # --agree-to-license : no interactive license prompt
-        # -R              : auto-restart if Apple marks an update as restart-required
-        sudo softwareupdate --install --all --agree-to-license -R
+        # --restart       : auto-restart if Apple marks an update as restart-required
+        sudo softwareupdate --install --all --agree-to-license --restart
         ok "In-place updates installed."
     fi
 
