@@ -13,17 +13,10 @@
 #   * Idempotent: safe to re-run; no-ops if there is nothing to install.
 #   * sudo is required; run it with a local admin account.
 #
-set -euo pipefail
-
-# -------------------------------------------------------------------------
-# Globals
-# -------------------------------------------------------------------------
-ARCH="$(uname -m)"    # arm64 (Apple Silicon) or x86_64 (Intel)
-
-say()  { printf '\n\033[1;34m== %s ==\033[0m\n' "$*"; }
-ok()   { printf '   \033[1;32m%s\033[0m\n' "$*"; }
-info() { printf '   %s\n' "$*"; }
-warn() { printf '   \033[1;33m%s\033[0m\n' "$*"; }
+# Shared helpers (say/ok/info/warn), strict mode, and ARCH live in
+# common.zsh in this directory — sourced below.
+#
+source "${0:A:h}/common.zsh"
 
 
 # =========================================================================
