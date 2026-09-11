@@ -9,8 +9,9 @@
 #
 # What it does (in order; every step is attempted and idempotent):
 #   1. If ~/.oh-my-zsh is missing, runs the official Oh My Zsh installer:
-#         sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-#      with --unattended (no interactive prompts). Two deliberate details:
+#         ZSH= curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh \
+#           | ZSH= sh -s -- --unattended
+#      (no interactive prompts). Two deliberate details:
 #       * ZSH is unset for the call — in an Oh My Zsh shell $ZSH is
 #         exported and the installer aborts with '$ZSH folder already
 #         exists' unless it is.
@@ -93,7 +94,7 @@ install_oh_my_zsh() {
         return 0
     fi
     info "Running the official installer (unattended):"
-    info "  sh -c \"\$(curl -fsSL $OMZ_INSTALL_URL)\" --unattended"
+    info "  ZSH= curl -fsSL \"$OMZ_INSTALL_URL\" | ZSH= sh -s -- --unattended"
     # ZSH must be unset: an Oh My Zsh shell exports it, and the installer
     # treats a non-empty $ZSH as 'already installed elsewhere' and aborts.
     ZSH= curl -fsSL "$OMZ_INSTALL_URL" | ZSH= sh -s -- --unattended
@@ -264,11 +265,13 @@ install_powerlevel10k() {
 }
 
 # =========================================================================
-# Step 4 — point ZSH_THEME at powerlevel10k
+# Step 5 — point ZSH_THEME at powerlevel10k
 # =========================================================================
-# True if ~/.zshrc already sets ZSH_THEME to the powerlevel10k value.
+# True if ~/.zshrc already sets ZSH_THEME to the powerlevel10k value,
+# in either quote style — matching both keeps a re-run byte-clean even
+# when the user quoted the line differently.
 theme_already_set() {
-    [ -f "$ZSHRC" ] && grep -qF "ZSH_THEME=\"$P10K_THEME\"" "$ZSHRC"
+    [ -f "$ZSHRC" ] && grep -qE "^[[:space:]]*ZSH_THEME[[:space:]]*=[\"']${P10K_THEME}[\"']" "$ZSHRC"
 }
 
 set_zsh_theme() {
