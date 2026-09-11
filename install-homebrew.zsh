@@ -10,9 +10,9 @@
 # How it works:
 #   * Runs the official Homebrew install script (the one from brew.sh):
 #       /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-#     with NONINTERACTIVE=1, which is Homebrew's documented way to skip the
-#     'Press RETURN to continue' prompt. The installer may ask for your
-#     sudo password — that part is yours.
+#     The installer is interactive: it pauses at the 'Press RETURN to
+#     continue' prompt and may ask for your sudo password — both are yours
+#     to answer in the terminal.
 #   * After a fresh install, adds 'brew shellenv' to ~/.zprofile (idempotent),
 #     so brew is on PATH in every new zsh session. On Apple Silicon this is
 #     what the installer itself recommends.
@@ -47,8 +47,8 @@ brew_installed() {
     [ -x /opt/homebrew/bin/brew ] || [ -x /usr/local/bin/brew ]
 }
 
-# Make sure 'brew shellenv' is in one of the zsh startup files so brew is
-# on PATH in new shells. Idempotent: never adds a duplicate line.
+# Make sure 'brew shellenv' is in ~/.zprofile so brew is on PATH in new
+# shells. Idempotent: never adds a duplicate line.
 ensure_shellenv() {
     local brew_bin
     brew_bin="$(command -v brew 2>/dev/null || { [ -x /opt/homebrew/bin/brew ] && printf '%s' /opt/homebrew/bin/brew; } || true)"
@@ -76,12 +76,9 @@ install_homebrew() {
         return 0
     fi
 
-    info "Running the official Homebrew installer (non-interactive)..."
-    info "The installer may ask for your sudo password."
-    # NONINTERACTIVE=1 is Homebrew's documented flag for skipping the
-    # 'Press RETURN to continue' prompt. In an interactive terminal the
-    # installer can still prompt for the sudo password, which is expected.
-    export NONINTERACTIVE=1
+    info "Running the official Homebrew installer..."
+    info "It will pause at the 'Press RETURN to continue' prompt — press Return."
+    info "It may also ask for your sudo password."
     /bin/bash -c "$(curl -fsSL $INSTALL_URL)"
 
     if ! brew_installed; then
