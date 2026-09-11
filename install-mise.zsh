@@ -17,9 +17,9 @@
 #   2. Pins the core toolchain GLOBALLY (runs whether or not step 1
 #      installed anything; idempotent — no-op if the pins are already
 #      at these versions):
-#         mise use -g python@3        # latest python (3.x)
-#         mise use -g node@lts        # latest Node LTS
-#         mise use -g java@lts        # latest Java LTS
+#         mise use -g python@3         # latest python (3.x)
+#         mise use -g node@24          # Node 24 (current LTS line)
+#         mise use -g java@corretto-25 # Corretto 25 (current LTS)
 #      These land in the global config (~/.config/mise/config.toml) rather
 #      than a per-directory mise.toml, so they apply everywhere.
 #   3. Enables automatic updates globally:
@@ -27,7 +27,7 @@
 #
 # Design notes:
 #   * 'python@3' is pinned to the major version: mise tracks 3.x forwards.
-#     'lts' is a real mise label (verified resolving to the current LTS).
+#     24 (Node) and 25 (Java) are the current LTS lines.
 #   * Arch-aware (Apple Silicon vs Intel) — detected at runtime.
 #   * Idempotent: safe to re-run; each step no-ops if already done.
 #   * No sudo required — mise is a per-user install under ~/.local/bin.
@@ -40,9 +40,9 @@ source "${0:A:h}/common.zsh"
 MISE_INSTALL_URL="https://mise.run/zsh"
 MISE_BIN="${HOME}/.local/bin/mise"
 
-# Tool pins, in the order mise installs them. 'lts' tracks the latest
-# long-term-support release; '3' tracks the latest 3.x python.
-MISE_TOOLS=(python@3 node@lts java@lts)
+# Tool pins, 'mise use -g' order. '3' tracks the latest 3.x python;
+# 24 (Node) and 25 (Java) are the pinned LTS lines, Java from Corretto.
+MISE_TOOLS=(python@3 node@24 java@corretto-25)
 
 
 # =========================================================================
