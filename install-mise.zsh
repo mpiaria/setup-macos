@@ -47,8 +47,11 @@ mise_installed() {
 }
 
 # Resolve the mise binary to run, regardless of this shell's PATH.
+# Always succeeds (falls back to the canonical location), so callers can
+# use it in assignments under 'set -e' — the callers gate on
+# mise_installed() to know whether it actually exists.
 mise_bin_path() {
-    command -v mise 2>/dev/null || { [ -x "$MISE_BIN" ] && printf '%s' "$MISE_BIN"; }
+    command -v mise 2>/dev/null || printf '%s' "$MISE_BIN"
 }
 
 enable_auto_updates() {
