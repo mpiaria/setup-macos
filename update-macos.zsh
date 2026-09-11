@@ -68,10 +68,10 @@ update_macos() {
         info "Pending updates found:"
         printf '%s\n' "$scan" | sed '/^$/d' | sed 's/^/      /'
         info "Installing all pending updates (may take a while)..."
-        # -ia        : install --all appropriate updates (short flags combine as -ia)
+        # --install --all : install all appropriate updates
         # --agree-to-license : no interactive license prompt
-        # -R         : auto-restart if Apple marks an update as restart-required
-        sudo softwareupdate -ia --agree-to-license -R
+        # -R              : auto-restart if Apple marks an update as restart-required
+        sudo softwareupdate --install --all --agree-to-license -R
         ok "In-place updates installed."
     fi
 
