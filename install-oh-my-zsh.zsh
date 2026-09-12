@@ -49,11 +49,24 @@
 #           "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
 #   5. Finds the ZSH_THEME line in ~/.zshrc and sets its value to
 #      "powerlevel10k/powerlevel10k" (appends the line if none exists).
+#   6. Configures plugins in ~/.zshrc and drops redundant activation
+#      lines:
+#       * rewrites the plugins block to contain exactly brew, git, mise
+#         (alphabetical, one per line, the OMZ style), replacing any
+#         existing block in place, or appending one if none exists;
+#       * removes the standalone activation lines the installers append
+#         — `eval "$(/opt/homebrew/bin/brew shellenv ...)"` (from the
+#         Homebrew installer) and `eval "$($HOME/.local/bin/mise activate
+#         zsh)" ...` (from the mise installer) — from ~/.zshrc and
+#         ~/.zprofile; each file is checked and a line may be absent.
+#         The OMZ brew and mise plugins put Homebrew on PATH and
+#         activate mise themselves, so those lines are redundant.
 #
 # Design notes:
 #   * Arch-aware (Apple Silicon vs Intel) — detected at runtime.
-#   * Idempotent: safe to re-run; each step no-ops if already done and a
-#     re-run never rewrites ~/.zshrc unless the ZSH_THEME value differs.
+#   * Idempotent: safe to re-run; each step no-ops if already done, and a
+#     re-run never rewrites ~/.zshrc / ~/.zprofile unless the ZSH_THEME
+#     value, the plugins block, or an activation line actually differs.
 #   * git is required (from the Command Line Tools); no sudo.
 #   * Homebrew is REQUIRED: the script fails without it after the fonts
 #     step (unless all four fonts are already installed).
@@ -346,6 +359,149 @@ set_zsh_theme() {
 
 
 # =========================================================================
+# Step 6 — plugins in $ZSHRC; drop the redundant brew/mise activation lines
+# =========================================================================
+# The OMZ brew and mise plugins put Homebrew on PATH and activate mise
+# themselves, so the standalone activation lines the installers append
+# are redundant once the plugins load. This step:
+#   * makes the plugins block exactly:
+#       plugins=(
+#           brew
+#           git
+#           mise
+#       )
+#     (alphabetical, unquoted, 4-space indent — the OMZ style). Any
+#     existing block is replaced in place — both the single-line form
+#     `plugins=(git)` and the multi-line form; if none exists, one is
+#     appended at EOF. A file whose block already is this is left
+#     byte-identical (idempotent re-run).
+#   * removes the brew and mise activation lines from $ZSHRC and
+#     $PROFILE_FILE — the installer may have put each in either file.
+#     Either line may be absent; that is not an error.
+
+# The exact plugin list $ZSHRC must contain (kept alphabetical).
+ZSH_PLUGINS=(brew git mise)
+PROFILE_FILE="${HOME}/.zprofile"
+# Only ACTIVE lines are matched (a line the user commented out is left
+# alone). Matches the Homebrew installer line, any brew path:
+#     eval "$(/opt/homebrew/bin/brew shellenv zsh)"
+BREW_ACTIVATE_RE='^[[:space:]]*eval[[:space:]]+"\$\(/[^)]*brew shellenv[^)]*\)".*$'
+# Matches the mise installer line, any mise path, trailing comment
+# allowed:
+#     eval "$($HOME/.local/bin/mise activate zsh)" # added by https://mise.run/zsh
+MISE_ACTIVATE_RE='^[[:space:]]*eval[[:space:]]+"\$\([^)]*mise activate[^)]*\)".*$'
+
+# Print the plugins block of $1 verbatim, from the opening
+# plugins=(... line through the line that closes it. Returns 1 when the
+# file has no plugins block at all.
+plugin_block_text() {
+    local file="$1" line found=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$found" -eq 0 ]; then
+            [[ "$line" =~ ^[[:space:]]*plugins[[:space:]]*= ]] || continue
+            found=1
+            printf '%s\n' "$line"
+            [[ "$line" == *")"* ]] && return 0
+            continue
+        fi
+        printf '%s\n' "$line"
+        [[ "$line" == *")"* ]] && return 0
+    done < "$file"
+    return 1
+}
+
+# Remove every line of $2 matching the ERE in $1 (only if present).
+strip_lines_matching() {
+    local re="$1" file="$2"
+    [ -f "$file" ] || return 0
+    if ! grep -qE "$re" "$file"; then
+        return 0
+    fi
+    local tmp="${file}.tmp"
+    grep -vE "$re" "$file" > "$tmp" || true
+    mv "$tmp" "$file"
+}
+
+set_zsh_plugins() {
+    say "Configure plugins in $ZSHRC: ${ZSH_PLUGINS[*]}"
+    if [ ! -f "$ZSHRC" ]; then
+        error "$ZSHRC not found — cannot configure plugins (Oh My Zsh should have created it)."
+        return 1
+    fi
+
+    local cur want
+    cur="$(plugin_block_text "$ZSHRC")" || cur="__no_block__"
+    want="$(
+        printf 'plugins=('
+        for p in "${ZSH_PLUGINS[@]}"; do
+            printf '\n    %s' "$p"
+        done
+        printf '\n)'
+    )"
+    if [ "$cur" = "$want" ]; then
+        ok "Plugins already ${ZSH_PLUGINS[*]}."
+        return 0
+    fi
+
+# $want (above) holds the exact block to write (OMZ style:
+# multi-line, 4-space indent).
+
+    if grep -qE '^[[:space:]]*plugins[[:space:]]*=' "$ZSHRC"; then
+        # Replace the existing block in place (single- or multi-line form).
+        local line out
+        out="$(
+            local inblk=0
+            while IFS= read -r line || [ -n "$line" ]; do
+                if [ "$inblk" -eq 0 ]; then
+                    if [[ "$line" =~ ^[[:space:]]*plugins[[:space:]]*= ]]; then
+                        inblk=1
+                        printf '%s\n' "$want"
+                        [[ "$line" == *")"* ]] && inblk=2
+                    else
+                        printf '%s\n' "$line"
+                    fi
+                    continue
+                fi
+                if [ "$inblk" -eq 1 ]; then
+                    # inside the old block — skip until its close line
+                    [[ "$line" == *")"* ]] && inblk=2
+                    continue
+                fi
+                printf '%s\n' "$line"
+            done < "$ZSHRC"
+        )"
+        printf '%s\n' "$out" > "$ZSHRC"
+        ok "Plugins were ${cur//\$'\n'/ /} — now: ${ZSH_PLUGINS[*]}."
+    else
+        # No plugins block — append one.
+        printf '\n%s\n' "$want" >> "$ZSHRC"
+        ok "No plugins block found — appended plugins: ${ZSH_PLUGINS[*]}."
+    fi
+}
+
+set_zsh_plugins_step() {
+    set_zsh_plugins || return 1
+
+    say "Remove the brew/mise activation lines (the OMZ plugins handle PATH/activation now)"
+    local f re
+    local total=0
+    for f in "$ZSHRC" "$PROFILE_FILE"; do
+        [ -f "$f" ] || continue
+        for re in "$BREW_ACTIVATE_RE" "$MISE_ACTIVATE_RE"; do
+            if grep -qE "$re" "$f"; then
+                strip_lines_matching "$re" "$f"
+                total=$((total+1))
+                info "Removed the matching activation line from ${f#~/}."
+            fi
+        done
+    done
+    if [ "$total" -eq 0 ]; then
+        ok "No brew/mise activation lines found — nothing to remove."
+    fi
+    return 0
+}
+
+# =========================================================================
 # Main
 # =========================================================================
 main() {
@@ -354,6 +510,7 @@ main() {
     configure_terminal
     install_powerlevel10k
     set_zsh_theme
+    set_zsh_plugins_step
     say "Oh My Zsh setup complete."
     info "Open a new terminal (or 'source $ZSHRC') to load the theme."
 }
