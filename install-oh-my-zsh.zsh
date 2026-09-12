@@ -27,22 +27,22 @@
 #        MesloLGS NF Regular.ttf / Bold.ttf / Italic.ttf / Bold Italic.ttf
 #      Installed into ~/Library/Fonts. This is a HARD dependency: if
 #      Homebrew is missing or the install fails, the script fails.
-#   3. Configures Terminal.app, right after the fonts are in place:
-#       * sets the default profile to Pro
-#       * sets the Pro profile's font to MesloLGS NF at 12pt
-#     Both go through Terminal's AppleScript API. The default profile in
-#     particular is NOT just a plist string: a running Terminal keeps
-#     "Default Window Settings" in memory, where an external 'defaults
-#     write' is ignored (and the app rewrites the plist on exit), so the
-#     default is set in-app and read back for verification. macOS 26
-#     (Tahoe) also renamed the AppleScript property from "default
-#     settings set" to "default settings" (and 'set' became a reserved
-#     word), so the script tries the new spelling and falls back to the
-#     old one. The API launches Terminal when it is closed; the script
-#     NEVER quits it: the user runs it from a terminal, and process
-#     detection is unreliable (e.g. 'pgrep -x Terminal' can miss a
-#     running Terminal on recent macOS), so quitting is not worth the
-#     risk of closing a window the user had open.
+#   3. Configures Terminal.app, right after the fonts are in place by
+#      setting three things, each applied on every run and read back to
+#      verify:
+#       * the default profile for future windows:
+#           tell application "Terminal" to set default settings to settings set "Pro"
+#       * the profile of window 1 (the window the script runs in):
+#           tell application "Terminal" to set current settings of window 1 to settings set "Pro"
+#       * the Pro profile's font to MesloLGS NF at 12pt (a binary NSFont
+#         blob only the AppleScript API can write).
+#     The profile writes ASSIGN the Pro profile object — never
+#     `set name of default settings to "Pro"`, which would RENAME the
+#     current default profile to "Pro" instead of switching to it. The
+#     user runs the script from Terminal.app, so Terminal is assumed to
+#     be open (and never quit); the macOS 26 (Tahoe) spellings ("default
+#     settings") are tried first, with the older "default settings set"
+#     as fallback.
 #   4. Clones the powerlevel10k theme if not already there, exactly per
 #      the official instructions:
 #         git clone --depth=1 https://github.com/romkatv/powerlevel10k.git \
@@ -150,23 +150,18 @@ install_fonts() {
 }
 
 # =========================================================================
-# Step 3 — Terminal.app: default profile Pro, Pro profile font MesloLGS NF
+# Step 3 — Terminal.app: default profile Pro, window 1 Pro, Pro font
 # =========================================================================
-# The font can only be written through Terminal's AppleScript API, which
-# LAUNCHES Terminal if it is closed. That is acceptable, but the script
-# NEVER quits Terminal afterwards: the user runs it from a terminal, and
-# launch-state detection is unreliable (e.g. 'pgrep -x Terminal' can miss
-# a running Terminal on recent macOS), so quitting risks closing a window
-# the user had open.
+# Assumes the user runs this from Terminal.app: Terminal is open and
+# window 1 is the window the script runs in. Every setting is applied on
+# EVERY run (each `set` is harmless when the value is already right) and
+# read back afterwards, so success is verified, never assumed. The script
+# NEVER quits Terminal.
 
 # Face name read back from the API for a MesloLGS NF font, e.g.
-# "MesloLGS-NF-Regular". (Calling this launches Terminal when it is
-# closed — that is fine; see the note atop this step.)
+# "MesloLGS-NF-Regular".
 _terminal_font_face() {
     osascript -e "tell application \"Terminal\" to get (font of settings set \"${TERMINAL_PROFILE}\") as text" 2>/dev/null || true
-}
-_terminal_font_already_set() {
-    [[ "$(_terminal_font_face)" == *"$TERMINAL_FONT_MARKER"* ]]
 }
 _terminal_font_size() {
     osascript -e "tell application \"Terminal\" to get font size of settings set \"${TERMINAL_PROFILE}\"" 2>/dev/null || true
@@ -181,18 +176,24 @@ _terminal_set_font_size() {
     osascript -e "tell application \"Terminal\" to set font size of settings set \"${TERMINAL_PROFILE}\" to ${TERMINAL_FONT_SIZE}"
 }
 
-# --- default profile helpers ---------------------------------------------
-# A RUNNING Terminal keeps "Default Window Settings" as a live in-memory
-# value: an external 'defaults write' changes the plist but NOT what the
-# launch app uses (and it writes its value back over the plist on exit).
-# So the default must be read and written through the app itself.
+# --- default profile helpers -------------------------------------------------
+# Terminal keeps the current default profile in the RUNNING app: an
+# external `defaults write` of "Default Window Settings" only touches the
+# plist, which the app ignores (and rewrites from memory on quit). So the
+# default must be set in-app — by assigning the Pro settings-set OBJECT
+# (`set default settings to settings set "Pro"`), NEVER by
+# `set name of default settings to "Pro"`: AppleScript sets the NAME
+# property of whatever profile is the default, so it RENAMEs the current
+# default profile (an early draft of this did exactly that on a fresh
+# Mac, turning the stock "Basic" into a duplicate "Pro").
 #
-# The AppleScript property was renamed in macOS 26 (Tahoe): "default
-# settings set" (older) -> "default settings". "set" has become a reserved
-# word there, so the OLD name is a hard syntax error on new systems and
-# the NEW name is unknown to older ones — try new first, fall back to old.
-# The font calls above keep 'settings set "Pro"' because THAT spelling is
-# still valid on both.
+# macOS 26 (Tahoe) renamed the property "default settings set" (older) to
+# "default settings" ("set" became a reserved word, so the old spelling
+# is a hard -2740 syntax error there); try the new spelling, fall back to
+# the old. The profile reference `settings set "Pro"` parses on both.
+_terminal_profile_exists() {
+    [ -n "$(osascript -e "tell application \"Terminal\" to get name of (settings set \"${TERMINAL_PROFILE}\")" 2>/dev/null)" ]
+}
 _terminal_default_profile() {
     local v
     if v="$(osascript -e 'tell application "Terminal" to get name of default settings' 2>/dev/null)"; then
@@ -201,74 +202,77 @@ _terminal_default_profile() {
     fi
     osascript -e 'tell application "Terminal" to get name of default settings set' 2>/dev/null || true
 }
-# Writes in-app; falls back to the plist when Terminal cannot be reached
-# at all (e.g. launchd is wedged). Returns 1 on failure.
+# Profile in use by window 1 — the window this script runs in. "" when the
+# app is unreachable or has no windows.
+_terminal_window_profile() {
+    osascript -e "tell application \"Terminal\" to get name of (current settings of window 1)" 2>/dev/null || true
+}
+# Make Pro the app-level default (new spelling, then old — see note at
+# the top of this step). Refuses before writing if there is no Pro
+# profile (otherwise the object assignment fails anyway).
 _terminal_set_default_profile() {
-    local name="$1"
-    osascript -e "tell application \"Terminal\" to set name of default settings to \"${name}\"" \
-        || osascript -e "tell application \"Terminal\" to set name of default settings set to \"${name}\"" \
-        || {
-            local before
-            before="$(defaults read "$TERMINAL_DOMAIN" "Default Window Settings" 2>/dev/null || true)"
-            [ "${before:-}" = "$name" ] && return 0
-            defaults write "$TERMINAL_DOMAIN" "Default Window Settings" -string "$name"
-        }
+    _terminal_profile_exists || return 1
+    osascript -e "tell application \"Terminal\" to set default settings to settings set \"${TERMINAL_PROFILE}\"" \
+        || osascript -e "tell application \"Terminal\" to set default settings set to settings set \"${TERMINAL_PROFILE}\""
+}
+# Switch window 1 (the script's own window) to Pro.
+_terminal_set_window1_profile() {
+    osascript -e "tell application \"Terminal\" to set current settings of window 1 to settings set \"${TERMINAL_PROFILE}\""
 }
 
 configure_terminal() {
-    say "Configure Terminal.app (default profile ${TERMINAL_PROFILE}, font ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt)"
+    say "Configure Terminal.app (default ${TERMINAL_PROFILE}, window 1 ${TERMINAL_PROFILE}, font ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt)"
 
-    # --- part 1: default profile — set through the APP (in app memory and
-    # on disk). An external 'defaults write' is not picked up by a running
-    # Terminal, so it is only the last resort (see note above).
-    local current
-    current="$(_terminal_default_profile)"
-    # Unreachable / not yet answered ("") -> treat as "not Pro", but skip a
-    # write we cannot verify instead of claiming success we cannot prove.
-    if [ -n "$current" ] && [ "$current" = "$TERMINAL_PROFILE" ]; then
-        ok "Default profile is already ${TERMINAL_PROFILE}."
+    # 1. Default profile for future windows — assign the Pro profile
+    # OBJECT (never `set name of default settings ...`, which would
+    # RENAME the current default instead of switching it).
+    if ! _terminal_set_default_profile; then
+        error "Could not make ${TERMINAL_PROFILE} the default profile (no ${TERMINAL_PROFILE} profile in Terminal's Preferences?)."
+        return 1
+    fi
+    local checked
+    checked="$(_terminal_default_profile)"
+    if [ "$checked" = "$TERMINAL_PROFILE" ]; then
+        ok "Default profile is ${TERMINAL_PROFILE}."
     else
-        info "Default profile was '${current:-<unknown>}' — switching to ${TERMINAL_PROFILE}."
-        if ! _terminal_set_default_profile "$TERMINAL_PROFILE"; then
-            warn "Could not set the ${TERMINAL_PROFILE} profile as Terminal's default."
-        else
-            local verified
-            verified="$(_terminal_default_profile)"
-            if [ "$verified" = "$TERMINAL_PROFILE" ]; then
-                ok "Default profile is now ${TERMINAL_PROFILE}."
-            else
-                warn "Wrote the ${TERMINAL_PROFILE} profile, but the read-back reported '${verified:-<none>}'."
-            fi
-        fi
+        warn "Default profile set, but read-back reports '${checked:-<unknown>}'."
+        return 1
     fi
 
-    # --- part 2: the Pro profile's font — AppleScript API only, which
-    # launches Terminal when it is closed. The script never quits it
-    # afterwards (see the note atop this step).
+    # 2. This window (window 1, where the script runs) -> Pro, so the new
+    # settings apply without opening another window.
+    if ! _terminal_set_window1_profile; then
+        error "Could not set window 1's profile to ${TERMINAL_PROFILE}."
+        return 1
+    fi
+    checked="$(_terminal_window_profile)"
+    if [ "$checked" = "$TERMINAL_PROFILE" ]; then
+        ok "Window 1 profile is ${TERMINAL_PROFILE}."
+    else
+        warn "Window 1 profile set, but read-back reports '${checked:-<unknown>}'. Open a new window to pick up the default."
+    fi
+
+    # 3. Font on the Pro profile — Terminal stores it as a binary NSFont
+    # blob that only the AppleScript API can write, so go through it.
     local face size
     face="$(_terminal_font_face)"
-    if [[ "$face" != *"$TERMINAL_FONT_MARKER"* ]]; then
-        info "Setting ${TERMINAL_PROFILE} font to ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt (was: ${face:-none})..."
-        if ! _terminal_set_font; then
-            error "Terminal refused the font change (is there a ${TERMINAL_PROFILE} profile?)."
-            return 1
-        fi
-        if ! _terminal_set_font_size; then
-            error "Terminal refused the font-size change."
-            return 1
-        fi
-        ok "${TERMINAL_PROFILE} font is now ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt."
+    size="$(_terminal_font_size)"
+    info "Setting ${TERMINAL_PROFILE} font to ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt (was: ${face:-unknown} / ${size:-unknown}pt)..."
+    if ! _terminal_set_font; then
+        error "Terminal refused the font change (is there a ${TERMINAL_PROFILE} profile?)."
+        return 1
+    fi
+    if ! _terminal_set_font_size; then
+        error "Terminal refused the font-size change."
+        return 1
+    fi
+    face="$(_terminal_font_face)"
+    size="$(_terminal_font_size)"
+    if [[ "$face" == *"$TERMINAL_FONT_MARKER"* ]] && [ "$size" = "$TERMINAL_FONT_SIZE" ]; then
+        ok "${TERMINAL_PROFILE} font is ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt."
     else
-        size="$(_terminal_font_size)"
-        if [ "${size:-0}" != "$TERMINAL_FONT_SIZE" ]; then
-            if ! _terminal_set_font_size; then
-                error "Terminal refused the font-size change."
-                return 1
-            fi
-            ok "${TERMINAL_PROFILE} font size adjusted to ${TERMINAL_FONT_SIZE}pt (was ${size:-unknown})."
-        else
-            ok "${TERMINAL_PROFILE} font is already ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt."
-        fi
+        warn "Font set, but read-back reports '${face:-<unknown>}' / ${size:-unknown}pt."
+        return 1
     fi
 }
 
