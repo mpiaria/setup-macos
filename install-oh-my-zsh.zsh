@@ -29,15 +29,20 @@
 #      Homebrew is missing or the install fails, the script fails.
 #   3. Configures Terminal.app, right after the fonts are in place:
 #       * sets the default profile to Pro
-#         (com.apple.Terminal "Default Window Settings")
 #       * sets the Pro profile's font to MesloLGS NF at 12pt
-#     The font can only be written through Terminal's AppleScript API
-#     (it's a binary blob inside the plist, not a settable string), which
-#     means Terminal.app is momentarily launched for reads/writes if it
-#     was closed. The script NEVER quits Terminal: the user runs it from
-#     a terminal, and process detection is unreliable (e.g. 'pgrep -x
-#     Terminal' can miss a running Terminal on recent macOS), so quitting
-#     is not worth the risk of closing a window the user had open.
+#     Both go through Terminal's AppleScript API. The default profile in
+#     particular is NOT just a plist string: a running Terminal keeps
+#     "Default Window Settings" in memory, where an external 'defaults
+#     write' is ignored (and the app rewrites the plist on exit), so the
+#     default is set in-app and read back for verification. macOS 26
+#     (Tahoe) also renamed the AppleScript property from "default
+#     settings set" to "default settings" (and 'set' became a reserved
+#     word), so the script tries the new spelling and falls back to the
+#     old one. The API launches Terminal when it is closed; the script
+#     NEVER quits it: the user runs it from a terminal, and process
+#     detection is unreliable (e.g. 'pgrep -x Terminal' can miss a
+#     running Terminal on recent macOS), so quitting is not worth the
+#     risk of closing a window the user had open.
 #   4. Clones the powerlevel10k theme if not already there, exactly per
 #      the official instructions:
 #         git clone --depth=1 https://github.com/romkatv/powerlevel10k.git \
@@ -176,23 +181,65 @@ _terminal_set_font_size() {
     osascript -e "tell application \"Terminal\" to set font size of settings set \"${TERMINAL_PROFILE}\" to ${TERMINAL_FONT_SIZE}"
 }
 
-terminal_default_profile() {
-    defaults read "$TERMINAL_DOMAIN" "Default Window Settings" 2>/dev/null || true
+# --- default profile helpers ---------------------------------------------
+# A RUNNING Terminal keeps "Default Window Settings" as a live in-memory
+# value: an external 'defaults write' changes the plist but NOT what the
+# launch app uses (and it writes its value back over the plist on exit).
+# So the default must be read and written through the app itself.
+#
+# The AppleScript property was renamed in macOS 26 (Tahoe): "default
+# settings set" (older) -> "default settings". "set" has become a reserved
+# word there, so the OLD name is a hard syntax error on new systems and
+# the NEW name is unknown to older ones — try new first, fall back to old.
+# The font calls above keep 'settings set "Pro"' because THAT spelling is
+# still valid on both.
+_terminal_default_profile() {
+    local v
+    if v="$(osascript -e 'tell application "Terminal" to get name of default settings' 2>/dev/null)"; then
+        printf '%s' "$v"
+        return
+    fi
+    osascript -e 'tell application "Terminal" to get name of default settings set' 2>/dev/null || true
+}
+# Writes in-app; falls back to the plist when Terminal cannot be reached
+# at all (e.g. launchd is wedged). Returns 1 on failure.
+_terminal_set_default_profile() {
+    local name="$1"
+    osascript -e "tell application \"Terminal\" to set name of default settings to \"${name}\"" \
+        || osascript -e "tell application \"Terminal\" to set name of default settings set to \"${name}\"" \
+        || {
+            local before
+            before="$(defaults read "$TERMINAL_DOMAIN" "Default Window Settings" 2>/dev/null || true)"
+            [ "${before:-}" = "$name" ] && return 0
+            defaults write "$TERMINAL_DOMAIN" "Default Window Settings" -string "$name"
+        }
 }
 
 configure_terminal() {
     say "Configure Terminal.app (default profile ${TERMINAL_PROFILE}, font ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt)"
 
-    # --- part 1: default profile — plain string, set via 'defaults'
-    # without launching Terminal at all.
+    # --- part 1: default profile — set through the APP (in app memory and
+    # on disk). An external 'defaults write' is not picked up by a running
+    # Terminal, so it is only the last resort (see note above).
     local current
-    current="$(terminal_default_profile)"
-    if [ "$current" = "$TERMINAL_PROFILE" ]; then
+    current="$(_terminal_default_profile)"
+    # Unreachable / not yet answered ("") -> treat as "not Pro", but skip a
+    # write we cannot verify instead of claiming success we cannot prove.
+    if [ -n "$current" ] && [ "$current" = "$TERMINAL_PROFILE" ]; then
         ok "Default profile is already ${TERMINAL_PROFILE}."
     else
-        info "Default profile was '${current:-<unset>}' — switching to ${TERMINAL_PROFILE}."
-        defaults write "$TERMINAL_DOMAIN" "Default Window Settings" -string "$TERMINAL_PROFILE"
-        ok "Default profile set to ${TERMINAL_PROFILE}."
+        info "Default profile was '${current:-<unknown>}' — switching to ${TERMINAL_PROFILE}."
+        if ! _terminal_set_default_profile "$TERMINAL_PROFILE"; then
+            warn "Could not set the ${TERMINAL_PROFILE} profile as Terminal's default."
+        else
+            local verified
+            verified="$(_terminal_default_profile)"
+            if [ "$verified" = "$TERMINAL_PROFILE" ]; then
+                ok "Default profile is now ${TERMINAL_PROFILE}."
+            else
+                warn "Wrote the ${TERMINAL_PROFILE} profile, but the read-back reported '${verified:-<none>}'."
+            fi
+        fi
     fi
 
     # --- part 2: the Pro profile's font — AppleScript API only, which
