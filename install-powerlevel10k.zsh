@@ -7,6 +7,9 @@
 #
 # Usage:
 #   ./install-powerlevel10k.zsh        # install; no-ops whatever is already in place
+#   FONT_WAIT_SECONDS=120 ./install-powerlevel10k.zsh   # wait longer for the
+#                                                       # running Terminal to
+#                                                       # register fresh fonts
 #
 # What it does (in order; every step is attempted and idempotent):
 #   1. Installs the MesloLGS NF fonts powerlevel10k needs (all four
@@ -25,7 +28,15 @@
 #       * the profile of window 1 (the window the script runs in):
 #           tell application "Terminal" to set current settings of window 1 to settings set "Pro"
 #       * the Pro profile's font to MesloLGS NF at 12pt (a binary NSFont
-#         blob only the AppleScript API can write).
+#         blob only the AppleScript API can write). The set is verified
+#         by read-back and retried until FONT_WAIT_SECONDS elapses
+#         (default 60): Terminal silently no-ops `set font` while the
+#         family is not yet in its launch-cached font list, which is
+#         exactly the state right after this script's own fonts step
+#         installed them on a fresh Mac (new ~/Library/Fonts files are
+#         picked up a few to a few tens of seconds later — measured
+#         5–50s with a throwaway font). Only if the read-back still
+#         does not match after the full wait does the script abort.
 #     The profile writes ASSIGN the Pro profile object — never
 #     `set name of default settings to "Pro"`, which would RENAME the
 #     current default profile to "Pro" instead of switching to it. The
@@ -185,6 +196,47 @@ _terminal_set_window1_profile() {
     osascript -e "tell application \"Terminal\" to set current settings of window 1 to settings set \"${TERMINAL_PROFILE}\""
 }
 
+# Set the profile font (family + size) and VERIFY by read-back. The
+# AppleScript `set font ... to "<family>"` resolves the family against
+# the font list of the RUNNING app and is a SILENT no-op (exit 0, font
+# unchanged) while the family is unknown — the numeric size still
+# applies. On a fresh Mac this step runs moments after the fonts were
+# installed by step 2, and the already-open Terminal does not register
+# new ~/Library/Fonts files for a few to a few tens of seconds (measured
+# 5–50s with a throwaway font). So: set, read back, retry while the
+# FONT_WAIT_SECONDS budget (default 60) runs out, then fail. Success on
+# the FIRST attempt (fonts already registered) costs exactly one
+# extra AppleScript call over the old code.
+_terminal_set_profile_font() {
+    local attempt=0 waited=0 wait_limit="${FONT_WAIT_SECONDS:-60}" face size
+    while :; do
+        attempt=$((attempt + 1))
+        if ! _terminal_set_font; then
+            error "Terminal refused the font change (is there a ${TERMINAL_PROFILE} profile?)."
+            return 1
+        fi
+        if ! _terminal_set_font_size; then
+            error "Terminal refused the font-size change."
+            return 1
+        fi
+        face="$(_terminal_font_face)"
+        size="$(_terminal_font_size)"
+        if [[ "$face" == *"$TERMINAL_FONT_MARKER"* ]] && [ "$size" = "$TERMINAL_FONT_SIZE" ]; then
+            ok "${TERMINAL_PROFILE} font is ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt."
+            return 0
+        fi
+        if (( waited >= wait_limit )); then
+            warn "Font set, but read-back still reports '${face:-<unknown>}' / ${size:-unknown}pt after ${attempt} attempts / ${waited}s. Quit and reopen Terminal, then re-run this script."
+            return 1
+        fi
+        if (( waited > 0 && waited % 15 == 0 && waited < wait_limit )); then
+            info "Terminal has not registered the new fonts yet (read-back: ${face:-<unknown>}) — ${waited}s of ${wait_limit}s"
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+}
+
 configure_terminal() {
     say "Configure Terminal.app (default ${TERMINAL_PROFILE}, window 1 ${TERMINAL_PROFILE}, font ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt)"
 
@@ -219,26 +271,12 @@ configure_terminal() {
 
     # 3. Font on the Pro profile — Terminal stores it as a binary NSFont
     # blob that only the AppleScript API can write, so go through it.
+    # Verified + retried (see _terminal_set_profile_font).
     local face size
     face="$(_terminal_font_face)"
     size="$(_terminal_font_size)"
     info "Setting ${TERMINAL_PROFILE} font to ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt (was: ${face:-unknown} / ${size:-unknown}pt)..."
-    if ! _terminal_set_font; then
-        error "Terminal refused the font change (is there a ${TERMINAL_PROFILE} profile?)."
-        return 1
-    fi
-    if ! _terminal_set_font_size; then
-        error "Terminal refused the font-size change."
-        return 1
-    fi
-    face="$(_terminal_font_face)"
-    size="$(_terminal_font_size)"
-    if [[ "$face" == *"$TERMINAL_FONT_MARKER"* ]] && [ "$size" = "$TERMINAL_FONT_SIZE" ]; then
-        ok "${TERMINAL_PROFILE} font is ${TERMINAL_FONT_FAMILY} ${TERMINAL_FONT_SIZE}pt."
-    else
-        warn "Font set, but read-back reports '${face:-<unknown>}' / ${size:-unknown}pt."
-        return 1
-    fi
+    _terminal_set_profile_font
 }
 
 
