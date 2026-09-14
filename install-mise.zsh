@@ -14,12 +14,13 @@
 #      line to ~/.zshrc (idempotent — it greps for its own
 #      '# added by https://mise.run/zsh' marker), so mise works in every
 #      new shell.
-#   2. Pins the core toolchain GLOBALLY (runs whether or not step 1
+#   2. Pins the toolchain GLOBALLY (runs whether or not step 1
 #      installed anything; idempotent — no-op if the pins are already
 #      at these versions):
-#         mise use -g python@3         # latest python (3.x)
-#         mise use -g node@24          # Node 24 (current LTS line)
-#         mise use -g java@corretto-25 # Corretto 25 (current LTS)
+#         mise use --global python@3         # latest python (3.x)
+#         mise use --global node@24          # Node 24 (current LTS line)
+#         mise use --global java@corretto-25 # Corretto 25 (current LTS)
+#         mise use --global awscli@latest    # floating pin, newest release
 #      These land in the global config (~/.config/mise/config.toml) rather
 #      than a per-directory mise.toml, so they apply everywhere.
 #   3. Enables automatic updates globally:
@@ -28,6 +29,8 @@
 # Design notes:
 #   * 'python@3' is pinned to the major version: mise tracks 3.x forwards.
 #     24 (Node) and 25 (Java) are the current LTS lines.
+#   * 'awscli@latest' is a floating pin: mise resolves it to the newest
+#     release on first install and tracks new releases on auto-updates.
 #   * Arch-aware (Apple Silicon vs Intel) — detected at runtime.
 #   * Idempotent: safe to re-run; each step no-ops if already done.
 #   * No sudo required — mise is a per-user install under ~/.local/bin.
@@ -40,9 +43,10 @@ source "${0:A:h}/common.zsh"
 MISE_INSTALL_URL="https://mise.run/zsh"
 MISE_BIN="${HOME}/.local/bin/mise"
 
-# Tool pins, 'mise use -g' order. '3' tracks the latest 3.x python;
-# 24 (Node) and 25 (Java) are the pinned LTS lines, Java from Corretto.
-MISE_TOOLS=(python@3 node@24 java@corretto-25)
+# Tool pins, 'mise use --global' order. '3' tracks the latest 3.x python;
+# 24 (Node) and 25 (Java) are the pinned LTS lines, Java from Corretto;
+# 'latest' (awscli) floats to the newest release.
+MISE_TOOLS=(python@3 node@24 java@corretto-25 awscli@latest)
 
 
 # =========================================================================
@@ -81,18 +85,19 @@ ensure_mise() {
 }
 
 # =========================================================================
-# Core toolchain (python / node / java) — global, idempotent
+# Toolchain (python / node / java / awscli) — global, idempotent
 # =========================================================================
 install_tools() {
-    say "Install core toolchain: ${MISE_TOOLS[*]}"
+    say "Install toolchain: ${MISE_TOOLS[*]}"
     local mise_bin
     mise_bin="$(mise_bin_path)"
-    info "Running: mise use -g ${MISE_TOOLS[*]}"
-    # '-g' targets the global config, so the pins apply in every directory.
-    # mise only downloads what isn't installed yet and re-pinning a tool
-    # that's already at this version is a no-op, making the whole step
-    # idempotent. It does not touch tools already in the config.
-    "$mise_bin" use -g "${MISE_TOOLS[@]}"
+    info "Running: mise use --global ${MISE_TOOLS[*]}"
+    # '--global' targets the global config, so the pins apply in every
+    # directory. mise only downloads what isn't installed yet and
+    # re-pinning a tool that's already at this version is a no-op, making
+    # the whole step idempotent. It does not touch tools already in the
+    # config.
+    "$mise_bin" use --global "${MISE_TOOLS[@]}"
     ok "Active versions:"
     "$mise_bin" ls | sed 's/^/      /'
 }
